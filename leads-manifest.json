@@ -1,0 +1,14 @@
+{
+  "name": "Summit Lead Collector",
+  "short_name": "Summit Leads",
+  "id": "./trade-show-leads.html",
+  "start_url": "./trade-show-leads.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "background_color": "#1a4f8f",
+  "theme_color": "#1a4f8f",
+  "icons": [
+    { "src": "leads-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "leads-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
