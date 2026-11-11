@@ -9,6 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="Summit Leads">
 <meta name="theme-color" content="#1a4f8f">
 <meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="leads-manifest.json">
+<link rel="icon" href="leads-icon-192.png">
 <title>Summit Lead Collector</title>
 <style>
   /* =========================================================
@@ -57,7 +59,15 @@
     box-shadow:0 4px 14px rgba(0,0,0,.25);
     user-select:none;-webkit-user-select:none;
   }
-  .logo{width:74px;height:74px;flex:none;cursor:default;touch-action:none}
+  .logo{
+    height:104px;min-width:74px;flex:none;cursor:default;touch-action:none;
+    display:flex;align-items:center;
+    -webkit-touch-callout:none;
+  }
+  .logo img{
+    height:100%;width:auto;max-width:280px;object-fit:contain;display:block;
+    pointer-events:none;-webkit-user-drag:none;user-select:none;
+  }
   .brand{flex:1;min-width:0}
   .brand h1{margin:0;font-size:clamp(24px,4vw,42px);font-weight:800;letter-spacing:.4px;line-height:1.1}
   .brand p{margin:5px 0 0;font-size:clamp(13px,1.7vw,18px);opacity:.85;letter-spacing:3px;text-transform:uppercase}
@@ -69,7 +79,7 @@
   .status .dot{width:10px;height:10px;border-radius:50%;background:var(--green)}
   .status.pending .dot{background:var(--amber)}
   .status.error .dot{background:var(--red)}
-  @media (max-width:640px){ .status{display:none} .logo{width:56px;height:56px} }
+  @media (max-width:640px){ .status{display:none} .logo{height:72px;min-width:56px} .logo img{max-width:180px} }
 
   /* ---------- Form card ---------- */
   main{
@@ -188,12 +198,11 @@
 
 <header>
   <!-- Press and hold this logo for 3 seconds to open the staff panel -->
-  <svg class="logo" id="logo" viewBox="0 0 80 80" aria-hidden="true">
-    <rect x="2" y="2" width="76" height="76" rx="16" fill="rgba(255,255,255,.12)" stroke="#fff" stroke-width="3"/>
-    <path d="M12 52 L40 22 L68 52" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
-    <path d="M22 52 L40 33 L58 52" fill="none" stroke="#c9ced4" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
-    <line x1="14" y1="61" x2="66" y2="61" stroke="#c9ced4" stroke-width="4" stroke-linecap="round"/>
-  </svg>
+  <!-- LOGO: upload your logo to the same folder as this page and name it
+       summit-logo.png (or change the file name below). -->
+  <div class="logo" id="logo">
+    <img src="summit-logo.png" alt="Summit Metal Supply and Sales" onerror="this.style.visibility='hidden'">
+  </div>
   <div class="brand">
     <h1>Summit Metal Supply and Sales</h1>
     <p>smsupply.ca</p>
@@ -319,7 +328,7 @@
    ========================================================= */
 const CONFIG = {
   // Paste the Web App URL from Google Apps Script (ends in /exec)
-  SCRIPT_URL: 'PASTE_YOUR_WEB_APP_URL_HERE',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxT4G4L4Unty6lkmxEXPL8EmBdE4tegUE3iQaO7P8EG/dev',
   // Must match TOKEN in the Apps Script
   TOKEN: 'summit-leads-2026',
   // PIN for the staff panel (press and hold the logo for 3 seconds)
@@ -554,6 +563,7 @@ async function sendLead(lead){
 async function syncNow(){
   if (syncing) return;
   if (!configured()) { lastError = 'Google Sheet link not set up yet (SCRIPT_URL in the settings).'; updateStatus(); return; }
+  if (!navigator.onLine) { lastError = 'No internet — leads are saved on this tablet and will send automatically when it is back online.'; updateStatus(); return; }
   syncing = true;
   updateStatus();
   try {
@@ -584,8 +594,8 @@ function updateStatus(){
   pill.classList.remove('pending', 'error');
   let text;
   if (!configured()) { pill.classList.add('error'); text = 'Setup needed'; }
-  else if (pending && lastError) { pill.classList.add('error'); text = `${pending} waiting to send`; }
-  else if (pending) { pill.classList.add('pending'); text = syncing ? 'Sending…' : `${pending} waiting to send`; }
+  else if (pending && syncing && navigator.onLine) { pill.classList.add('pending'); text = 'Sending…'; }
+  else if (pending) { pill.classList.add('pending'); text = 'Saved on tablet'; }
   else text = 'All saved';
   $('statusText').textContent = text;
 
@@ -599,7 +609,7 @@ function updateStatus(){
   if (!storageOk) m.push('Warning: tablet storage is full or blocked — download a CSV backup now.');
   if (!m.length) m.push(lastSyncAt ? `Last sent to Google Sheets at ${lastSyncAt.toLocaleTimeString('en-CA', { timeStyle: 'short' })}.` : 'Everything is up to date.');
   msg.textContent = m.join(' ');
-  msg.classList.toggle('bad', !!lastError || !storageOk);
+  msg.classList.toggle('bad', (!!lastError && navigator.onLine) || !storageOk);
 }
 
 /* =========================================================
@@ -718,9 +728,45 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { keepAwake(); syncNow(); }
 });
 
+/* =========================================================
+   Offline support — keeps a copy of this page and the logo on
+   the tablet so it still opens with no internet.
+   Needs leads-sw.js in the same folder on GitHub.
+   (Only works from https, e.g. GitHub Pages — not from a local file.)
+   ========================================================= */
+const OFFLINE_CACHE = 'summit-leads-offline';
+async function setupOffline(){
+  // Ask the browser not to clear this page's saved data when space is low
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch(e){}
+
+  if (!('serviceWorker' in navigator) || location.protocol !== 'https:') return;
+  try {
+    const paths = [location.pathname];
+    const img = document.querySelector('#logo img');
+    if (img && img.src.startsWith(location.origin)) paths.push(new URL(img.src).pathname);
+
+    const swUrl = 'leads-sw.js?' + paths.map(p => 'f=' + encodeURIComponent(p)).join('&');
+    await navigator.serviceWorker.register(swUrl);
+
+    // Save fresh copies while we have internet
+    if (navigator.onLine) {
+      const cache = await caches.open(OFFLINE_CACHE);
+      await Promise.all(paths.map(async p => {
+        try {
+          const res = await fetch(p, { cache: 'no-cache' });
+          if (res.ok) await cache.put(location.origin + p, res);
+        } catch(e){}
+      }));
+    }
+  } catch(e){}
+}
+
+window.addEventListener('offline', updateStatus);
+
 /* Start */
 updateStatus();
 syncNow();
+setupOffline();
 </script>
 </body>
 </html>
